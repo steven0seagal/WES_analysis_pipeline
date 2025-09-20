@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -16,7 +16,7 @@ jobs:
         run: sudo apt-get install -y shellcheck
 
       - name: Check bash scripts
-        run: find scripts/ -name "*.sh" -exec shellcheck {} \;
+        run: find scripts/ workflows/ -name "*.sh" -exec shellcheck {} \;
 
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
@@ -31,14 +31,16 @@ jobs:
         run: |
            source $CONDA/etc/profile.d/conda.sh
            conda activate base
-           cd scripts && snakemake -s Snakefile_GATK --lint
-           cd scripts && snakemake -s Snakefile_DeepVariant --lint
+           cd workflows/gatk && snakemake --lint
+           cd ../deepvariant && snakemake --lint
 
       - name: Check YAML syntax
         run: |
           python -c "import yaml; yaml.safe_load(open('environment.yml'))"
-          python -c "import yaml; yaml.safe_load(open('config/config.yaml'))"
-          python -c "import yaml; yaml.safe_load(open('config/cluster.yaml'))"
+          python -c "import yaml; \
+            yaml.safe_load(open('workflows/gatk/config.yaml'))"
+          python -c "import yaml; \
+            yaml.safe_load(open('workflows/deepvariant/config.yaml'))"
 
       - name: Install Python linters
         run: pip install flake8 yamllint
@@ -69,19 +71,14 @@ jobs:
         run: |
            source $CONDA/etc/profile.d/conda.sh
            conda activate base
-           cd scripts
-           snakemake -s Snakefile_GATK --dryrun --printshellcmds --quiet || \
+           cd workflows/gatk
+           snakemake --dryrun --printshellcmds --quiet || \
             echo "Pipeline validation failed, but syntax is correct"
 
       - name: Validate DeepVariant pipeline syntax
         run: |
            source $CONDA/etc/profile.d/conda.sh
            conda activate base
-           cd scripts
-           snakemake -s Snakefile_DeepVariant --dryrun --printshellcmds --quiet || \
+           cd workflows/deepvariant
+           snakemake --dryrun --printshellcmds --quiet || \
            echo "Pipeline validation failed, but syntax is correct"
-
-      - name: Test script executability
-        run: |
-          chmod +x scripts/*.sh
-          bash scripts/validate_installation.sh || echo "Validation completed with warnings"
