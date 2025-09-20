@@ -70,11 +70,17 @@ jobs:
     - name: Set up Conda environment
       uses: conda-incubator/setup-miniconda@v2
       with:
+        miniconda-version: "latest"
         environment-file: environment.yml
+        environment-name: wes-analysis
         activate-environment: wes-analysis
+        auto-activate-base: false
+        use-mamba: true
 
     - name: Validate environment
+      shell: bash -l {0}
       run: |
+        conda activate wes-analysis
         conda list
         which bwa samtools gatk fastqc
 
