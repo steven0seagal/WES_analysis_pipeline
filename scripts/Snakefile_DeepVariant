@@ -1,0 +1,432 @@
+# Snakemake workflow for DeepVariant WES Analysis Pipeline
+# From raw FASTQ files to annotated VCF files using DeepVariant
+# Optimized for containerized execution
+
+import os
+import pandas as pd
+from snakemake.utils import min_version
+
+# Minimum Snakemake version
+min_version("7.0")
+
+# --- Load Configuration ---
+configfile: "config/config.yaml"
+
+# --- Global Variables ---
+SAMPLES = config["samples"]
+RESULTS_DIR = config["results_dir"] + "/deepvariant"
+DEEPVARIANT_VERSION = config["params"]["deepvariant"]["version"]
+CONTAINER_RUNTIME = config["advanced"].get("container_runtime", "docker")
+
+# --- Input Validation ---
+def validate_samples():
+    """Validate that all required input files exist"""
+    missing_files = []
+    for sample in SAMPLES:
+        r1 = os.path.join(config["data_dir"], f"{sample}_R1.fastq.gz")
+        r2 = os.path.join(config["data_dir"], f"{sample}_R2.fastq.gz")
+        if not os.path.exists(r1):
+            missing_files.append(r1)
+        if not os.path.exists(r2):
+            missing_files.append(r2)
+
+    if missing_files:
+        raise FileNotFoundError(f"Missing input files: {missing_files}")
+
+# Validate samples at workflow start
+validate_samples()
+
+# --- Helper Functions ---
+def get_fastqs(wildcards):
+    """Return FASTQ files for a given sample"""
+    return {
+        "r1": os.path.join(config["data_dir"], f"{wildcards.sample}_R1.fastq.gz"),
+        "r2": os.path.join(config["data_dir"], f"{wildcards.sample}_R2.fastq.gz")
+    }
+
+def get_read_group(wildcards):
+    """Generate read group string for BWA"""
+    rg_config = config["params"]["rg"]
+    return f"'@RG\\tID:{rg_config['platform_unit_prefix']}.{wildcards.sample}\\tSM:{wildcards.sample}\\tPL:{rg_config['platform']}\\tLB:{rg_config['library_prefix']}{wildcards.sample}\\tCN:SequencingCenter\\tDS:WES'"
+
+def get_container_directive():
+    """Get container directive based on runtime"""
+    if CONTAINER_RUNTIME == "singularity":
+        return f"singularity: docker://google/deepvariant:{DEEPVARIANT_VERSION}"
+    else:
+        return f"container: docker://google/deepvariant:{DEEPVARIANT_VERSION}"
+
+# --- Target Rules ---
+rule all:
+    input:
+        # Individual sample outputs
+        expand(os.path.join(RESULTS_DIR, "{sample}", "gvcf", "{sample}.g.vcf.gz"), sample=SAMPLES),
+        expand(os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz"), sample=SAMPLES),
+        # Joint called VCF (if GLnexus is available)
+        os.path.join(RESULTS_DIR, "cohort", f"{config.get('cohort_name', 'cohort')}.vcf.gz") if len(SAMPLES) > 1 else [],
+        # MultiQC report
+        os.path.join(RESULTS_DIR, "multiqc", "multiqc_report.html"),
+        # Individual sample reports
+        expand(os.path.join(RESULTS_DIR, "{sample}", "{sample}_summary.txt"), sample=SAMPLES)
+
+# --- Quality Control Rules ---
+rule fastqc_raw:
+    """Run FastQC on raw FASTQ files"""
+    input:
+        unpack(get_fastqs)
+    output:
+        html_r1=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}_R1_fastqc.html"),
+        zip_r1=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}_R1_fastqc.zip"),
+        html_r2=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}_R2_fastqc.html"),
+        zip_r2=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}_R2_fastqc.zip")
+    params:
+        outdir=lambda wildcards, output: os.path.dirname(output.html_r1),
+        threads=config["params"].get("fastqc", {}).get("threads", 2)
+    log:
+        os.path.join(RESULTS_DIR, "logs", "fastqc", "{sample}.log")
+    threads: config["params"].get("fastqc", {}).get("threads", 2)
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        fastqc -o {params.outdir} -t {params.threads} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+# --- Alignment Rules ---
+rule bwa_mem_sort:
+    """Align reads with BWA-MEM and sort with Samtools"""
+    input:
+        r1=os.path.join(config["data_dir"], "{sample}_R1.fastq.gz"),
+        r2=os.path.join(config["data_dir"], "{sample}_R2.fastq.gz"),
+        ref=config["reference_genome"],
+        ref_idx=config["reference_genome"] + ".bwt"
+    output:
+        bam=os.path.join(RESULTS_DIR, "bam", "{sample}.sorted.bam"),
+        bai=os.path.join(RESULTS_DIR, "bam", "{sample}.sorted.bam.bai")
+    params:
+        rg=get_read_group,
+        sort_threads=config["params"]["bwa"].get("mem_sort_threads", 4)
+    log:
+        os.path.join(RESULTS_DIR, "logs", "bwa_mem", "{sample}.log")
+    threads: config["params"]["bwa"]["threads"]
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        (bwa mem -t {threads} -R {params.rg} {input.ref} {input.r1} {input.r2} | \\
+         samtools sort -@ {params.sort_threads} -o {output.bam} -) > {log} 2>&1
+        samtools index {output.bam}
+        """
+
+# --- Preprocessing Rules ---
+rule mark_duplicates:
+    """Mark duplicate reads with Picard (no BQSR for DeepVariant)"""
+    input:
+        bam=os.path.join(RESULTS_DIR, "bam", "{sample}.sorted.bam"),
+        bai=os.path.join(RESULTS_DIR, "bam", "{sample}.sorted.bam.bai")
+    output:
+        bam=os.path.join(RESULTS_DIR, "bam", "{sample}.marked_dups.bam"),
+        bai=os.path.join(RESULTS_DIR, "bam", "{sample}.marked_dups.bam.bai"),
+        metrics=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.dup_metrics.txt")
+    params:
+        java_opts=config["params"]["java_opts"]
+    log:
+        os.path.join(RESULTS_DIR, "logs", "mark_duplicates", "{sample}.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        gatk --java-options '{params.java_opts}' MarkDuplicates \\
+            -I {input.bam} \\
+            -O {output.bam} \\
+            -M {output.metrics} \\
+            --CREATE_INDEX true \\
+            --VALIDATION_STRINGENCY SILENT > {log} 2>&1
+        """
+
+# --- DeepVariant Variant Calling ---
+rule deepvariant:
+    """Call variants with DeepVariant using containers"""
+    input:
+        bam=os.path.join(RESULTS_DIR, "bam", "{sample}.marked_dups.bam"),
+        bai=os.path.join(RESULTS_DIR, "bam", "{sample}.marked_dups.bam.bai"),
+        ref=config["reference_genome"],
+        ref_fai=config["reference_genome"] + ".fai",
+        targets=config["exome_targets"]
+    output:
+        vcf=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz"),
+        vcf_idx=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz.tbi"),
+        gvcf=os.path.join(RESULTS_DIR, "{sample}", "gvcf", "{sample}.g.vcf.gz"),
+        gvcf_idx=os.path.join(RESULTS_DIR, "{sample}", "gvcf", "{sample}.g.vcf.gz.tbi")
+    params:
+        model_type=config["params"]["deepvariant"]["model_type"],
+        num_shards=config["params"]["deepvariant"]["num_shards"],
+        intermediate_dir=lambda wildcards, output: os.path.join(os.path.dirname(output.vcf), f"intermediate_{wildcards.sample}")
+    log:
+        os.path.join(RESULTS_DIR, "logs", "deepvariant", "{sample}.log")
+    threads: config["params"]["deepvariant"]["num_shards"]
+    container:
+        f"docker://google/deepvariant:{DEEPVARIANT_VERSION}"
+    shell:
+        """
+        mkdir -p {params.intermediate_dir}
+
+        /opt/deepvariant/bin/run_deepvariant \\
+            --model_type={params.model_type} \\
+            --ref={input.ref} \\
+            --reads={input.bam} \\
+            --regions={input.targets} \\
+            --output_vcf={output.vcf} \\
+            --output_gvcf={output.gvcf} \\
+            --num_shards={params.num_shards} \\
+            --intermediate_results_dir={params.intermediate_dir} > {log} 2>&1
+
+        # Clean up intermediate files
+        rm -rf {params.intermediate_dir}
+        """
+
+# --- Quality Metrics Rules ---
+rule collect_hs_metrics:
+    """Collect hybrid selection metrics"""
+    input:
+        bam=os.path.join(RESULTS_DIR, "bam", "{sample}.marked_dups.bam"),
+        ref=config["reference_genome"],
+        targets=config["exome_targets"]
+    output:
+        metrics=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.hs_metrics.txt")
+    params:
+        java_opts=config["params"]["java_opts"]
+    log:
+        os.path.join(RESULTS_DIR, "logs", "hs_metrics", "{sample}.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        gatk --java-options '{params.java_opts}' CollectHsMetrics \\
+            -I {input.bam} \\
+            -O {output.metrics} \\
+            -R {input.ref} \\
+            -BAIT_INTERVALS {input.targets} \\
+            -TARGET_INTERVALS {input.targets} > {log} 2>&1
+        """
+
+rule variant_stats:
+    """Generate variant statistics with bcftools"""
+    input:
+        vcf=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz")
+    output:
+        stats=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.variant_stats.txt")
+    log:
+        os.path.join(RESULTS_DIR, "logs", "variant_stats", "{sample}.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        bcftools stats {input.vcf} > {output.stats} 2> {log}
+        """
+
+rule sample_summary:
+    """Generate per-sample summary report"""
+    input:
+        vcf=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz"),
+        gvcf=os.path.join(RESULTS_DIR, "{sample}", "gvcf", "{sample}.g.vcf.gz"),
+        hs_metrics=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.hs_metrics.txt"),
+        dup_metrics=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.dup_metrics.txt"),
+        variant_stats=os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.variant_stats.txt")
+    output:
+        summary=os.path.join(RESULTS_DIR, "{sample}", "{sample}_summary.txt")
+    shell:
+        """
+        cat > {output.summary} << 'EOF'
+DeepVariant WES Pipeline - Sample Summary Report
+================================================
+Sample: {wildcards.sample}
+Analysis Date: $(date)
+Pipeline: Snakemake DeepVariant WES
+DeepVariant Version: {DEEPVARIANT_VERSION}
+
+Output Files:
+- VCF: {input.vcf}
+- gVCF: {input.gvcf}
+- Hybrid Selection Metrics: {input.hs_metrics}
+- Duplicate Metrics: {input.dup_metrics}
+- Variant Statistics: {input.variant_stats}
+
+Key Pipeline Features:
+- No BQSR performed (DeepVariant handles base quality internally)
+- Containerized execution for reproducibility
+- WES-specific model used
+
+Quality Control:
+- FastQC reports available in results/deepvariant/qc/{wildcards.sample}/
+- All processing logs available in results/deepvariant/logs/
+
+Next Steps:
+1. Review quality metrics and variant statistics
+2. Proceed with joint genotyping using GLnexus
+3. Perform variant annotation and filtering
+EOF
+        """
+
+# --- Joint Genotyping Rules (if GLnexus is available) ---
+rule check_glnexus:
+    """Check if GLnexus is available for joint calling"""
+    output:
+        flag=temp(os.path.join(RESULTS_DIR, "cohort", ".glnexus_available"))
+    shell:
+        """
+        if command -v glnexus_cli &> /dev/null; then
+            touch {output.flag}
+        else
+            echo "GLnexus not found, skipping joint calling" > {output.flag}
+        fi
+        """
+
+rule glnexus_joint_calling:
+    """Perform joint calling with GLnexus (if available)"""
+    input:
+        gvcfs=expand(os.path.join(RESULTS_DIR, "{sample}", "gvcf", "{sample}.g.vcf.gz"), sample=SAMPLES),
+        flag=os.path.join(RESULTS_DIR, "cohort", ".glnexus_available")
+    output:
+        vcf=os.path.join(RESULTS_DIR, "cohort", f"{config.get('cohort_name', 'cohort')}.vcf.gz"),
+        idx=os.path.join(RESULTS_DIR, "cohort", f"{config.get('cohort_name', 'cohort')}.vcf.gz.tbi")
+    params:
+        cohort_name=config.get('cohort_name', 'cohort'),
+        config_preset="DeepVariant_unfiltered",
+        mem_gb=config["params"]["mem_gb"],
+        db_dir=lambda wildcards, output: os.path.join(os.path.dirname(output.vcf), f"{config.get('cohort_name', 'cohort')}_glnexus.db")
+    log:
+        os.path.join(RESULTS_DIR, "logs", "glnexus_joint_calling.log")
+    threads: config["params"]["threads"]
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        if grep -q "GLnexus not found" {input.flag}; then
+            echo "GLnexus not available, creating empty VCF" > {log}
+            # Create minimal VCF header
+            echo "##fileformat=VCFv4.2" | bgzip > {output.vcf}
+            tabix -p vcf {output.vcf}
+        else
+            glnexus_cli \\
+                --config {params.config_preset} \\
+                --threads {threads} \\
+                --mem-gbytes {params.mem_gb} \\
+                --dir {params.db_dir} \\
+                {input.gvcfs} | \\
+            bgzip -c > {output.vcf} 2> {log}
+
+            tabix -p vcf {output.vcf}
+
+            # Clean up database if requested
+            if [ "{config[output][cleanup_temp]}" = "true" ]; then
+                rm -rf {params.db_dir}
+            fi
+        fi
+        """
+
+# --- Annotation Rules ---
+rule snpeff_annotate_sample:
+    """Annotate individual sample VCFs with SnpEff"""
+    input:
+        vcf=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.vcf.gz")
+    output:
+        vcf=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}.annotated.vcf.gz"),
+        html=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}_snpEff_summary.html"),
+        csv=os.path.join(RESULTS_DIR, "{sample}", "vcf", "{sample}_snpEff_genes.txt")
+    params:
+        genome_db=config["params"]["snpeff"]["genome_db"],
+        memory=config["params"]["snpeff"]["memory"]
+    log:
+        os.path.join(RESULTS_DIR, "logs", "snpeff", "{sample}.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        snpEff -Xmx{params.memory} -v {params.genome_db} \\
+            -stats {output.html} \\
+            -csvStats {output.csv} \\
+            {input.vcf} | \\
+        bgzip -c > {output.vcf} 2> {log}
+
+        tabix -p vcf {output.vcf}
+        """
+
+rule snpeff_annotate_cohort:
+    """Annotate cohort VCF with SnpEff"""
+    input:
+        vcf=os.path.join(RESULTS_DIR, "cohort", f"{config.get('cohort_name', 'cohort')}.vcf.gz")
+    output:
+        vcf=os.path.join(RESULTS_DIR, "cohort", f"{config.get('cohort_name', 'cohort')}.annotated.vcf.gz"),
+        html=os.path.join(RESULTS_DIR, "cohort", "snpEff_summary.html"),
+        csv=os.path.join(RESULTS_DIR, "cohort", "snpEff_genes.txt")
+    params:
+        genome_db=config["params"]["snpeff"]["genome_db"],
+        memory=config["params"]["snpeff"]["memory"]
+    log:
+        os.path.join(RESULTS_DIR, "logs", "snpeff_cohort.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        # Check if input VCF is empty (GLnexus not available case)
+        if [ $(zcat {input.vcf} | wc -l) -le 1 ]; then
+            echo "Empty input VCF, creating empty annotated VCF" > {log}
+            cp {input.vcf} {output.vcf}
+            echo "<html><body>No variants to annotate</body></html>" > {output.html}
+            echo "No variants" > {output.csv}
+        else
+            snpEff -Xmx{params.memory} -v {params.genome_db} \\
+                -stats {output.html} \\
+                -csvStats {output.csv} \\
+                {input.vcf} | \\
+            bgzip -c > {output.vcf} 2> {log}
+
+            tabix -p vcf {output.vcf}
+        fi
+        """
+
+# --- Reporting Rules ---
+rule multiqc:
+    """Generate MultiQC report"""
+    input:
+        fastqc=expand(os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}_{read}_fastqc.zip"), sample=SAMPLES, read=["R1", "R2"]),
+        dup_metrics=expand(os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.dup_metrics.txt"), sample=SAMPLES),
+        hs_metrics=expand(os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.hs_metrics.txt"), sample=SAMPLES),
+        variant_stats=expand(os.path.join(RESULTS_DIR, "qc", "{sample}", "{sample}.variant_stats.txt"), sample=SAMPLES)
+    output:
+        report=os.path.join(RESULTS_DIR, "multiqc", "multiqc_report.html")
+    params:
+        outdir=os.path.join(RESULTS_DIR, "multiqc"),
+        title="DeepVariant WES Pipeline Results"
+    log:
+        os.path.join(RESULTS_DIR, "logs", "multiqc.log")
+    conda:
+        "../environment.yml"
+    shell:
+        """
+        multiqc \\
+            --title '{params.title}' \\
+            --filename multiqc_report.html \\
+            --outdir {params.outdir} \\
+            --force \\
+            {RESULTS_DIR} > {log} 2>&1
+        """
+
+# --- Cleanup Rules ---
+rule clean_intermediate:
+    """Clean intermediate files to save space"""
+    input:
+        multiqc=os.path.join(RESULTS_DIR, "multiqc", "multiqc_report.html"),
+        samples=expand(os.path.join(RESULTS_DIR, "{sample}", "{sample}_summary.txt"), sample=SAMPLES)
+    shell:
+        """
+        if [ "{config[output][keep_intermediate]}" = "false" ]; then
+            echo "Cleaning intermediate files..."
+            find {RESULTS_DIR} -name "*.sorted.bam*" -delete
+            echo "Intermediate files cleaned"
+        else
+            echo "Keeping intermediate files as requested"
+        fi
+        """
