@@ -1,0 +1,134 @@
+name: Test Pipelines
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly on Sundays
+    - cron: '0 0 * * 0'
+
+jobs:
+  test-gatk:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Set up Conda environment
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        environment-file: environment.yml
+        activate-environment: wes-analysis
+
+    - name: Download test data
+      run: |
+        # Download small test dataset
+        mkdir -p test_data
+        cd test_data
+        # Use a small public dataset for testing
+        wget -q https://ftp.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/NA12878/NIST_NA12878_HG001_HiSeq_300x/131219_D00360_0013_AH8VC6ADXX/Project_RM8398/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX.tar.gz
+        tar -xzf U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX.tar.gz
+        # Extract small subset for testing
+        zcat U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX_1_fastq.gz | head -400000 | gzip > test_R1.fastq.gz
+        zcat U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX_2_fastq.gz | head -400000 | gzip > test_R2.fastq.gz
+
+    - name: Prepare reference (subset)
+      run: |
+        mkdir -p reference
+        cd reference
+        # Download small reference subset (chr20)
+        wget -q https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+        gunzip GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+        # Extract chr20 only for testing
+        samtools faidx GCF_000001405.40_GRCh38.p14_genomic.fna chr20 > GRCh38.chr20.fa
+        samtools faidx GRCh38.chr20.fa
+        bwa index GRCh38.chr20.fa
+
+    - name: Run GATK pipeline test
+      run: |
+        cd test_data
+        # Create small exome targets for chr20
+        echo -e "chr20\t100000\t200000\ttest_target" > ../reference/test_targets.bed
+        # Run pipeline with limited resources
+        timeout 30m bash ../scripts/gatk_pipeline.sh -s test -t 2 -m 8 -r ../reference -o ../test_results --exome-targets ../reference/test_targets.bed
+
+    - name: Validate outputs
+      run: |
+        # Check that expected files exist
+        ls -la test_results/gatk/test/
+        # Basic validation
+        [ -f test_results/gatk/test/gvcf/test.g.vcf.gz ] && echo "gVCF created successfully"
+        [ -f test_results/gatk/test/bam/test.analysis_ready.bam ] && echo "BAM created successfully"
+
+  test-deepvariant:
+    runs-on: ubuntu-latest
+    needs: test-gatk
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker.io
+        sudo systemctl start docker
+
+    - name: Download test data
+      run: |
+        # Reuse test data from GATK test
+        mkdir -p test_data
+        cd test_data
+        # Copy from previous job or redownload
+        wget -q https://ftp.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/NA12878/NIST_NA12878_HG001_HiSeq_300x/131219_D00360_0013_AH8VC6ADXX/Project_RM8398/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX.tar.gz
+        tar -xzf U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX.tar.gz
+        zcat U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX_1_fastq.gz | head -400000 | gzip > test_R1.fastq.gz
+        zcat U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX/Sample_U0a/U0a_C8V0YANXX_8_131219_D00360_0013_AH8VC6ADXX_2_fastq.gz | head -400000 | gzip > test_R2.fastq.gz
+
+    - name: Prepare reference
+      run: |
+        mkdir -p reference
+        cd reference
+        wget -q https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+        gunzip GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+        samtools faidx GCF_000001405.40_GRCh38.p14_genomic.fna chr20 > GRCh38.chr20.fa
+        samtools faidx GRCh38.chr20.fa
+        bwa index GRCh38.chr20.fa
+        echo -e "chr20\t100000\t200000\ttest_target" > test_targets.bed
+
+    - name: Run DeepVariant pipeline test
+      run: |
+        cd test_data
+        timeout 30m bash ../scripts/deepvariant_pipeline.sh -s test -t 2 -m 8 -r ../reference -o ../test_results_dv --exome-targets ../reference/test_targets.bed
+
+    - name: Validate DeepVariant outputs
+      run: |
+        ls -la test_results_dv/deepvariant/test/
+        [ -f test_results_dv/deepvariant/test/gvcf/test.g.vcf.gz ] && echo "DeepVariant gVCF created successfully"
+
+  performance-test:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 * * 0'  # Only on weekly schedule
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run performance benchmarks
+      run: |
+        # Placeholder for performance testing
+        echo "Running performance benchmarks..."
+        # Add benchmark scripts here
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmarks/results/
