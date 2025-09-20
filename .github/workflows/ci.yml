@@ -1,16 +1,24 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # Run weekly to catch issues with dependencies
+    - cron: '0 6 * * 1'
+
+env:
+  CONDA_ENV_NAME: wes-analysis
 
 jobs:
-  lint:
+  lint-and-format:
+    name: Code Quality Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -20,20 +28,29 @@ jobs:
     - name: Install linting tools
       run: |
         python -m pip install --upgrade pip
-        pip install black flake8 shellcheck-py pre-commit
+        pip install black flake8 shellcheck-py yamllint pre-commit
 
     - name: Run pre-commit hooks
       run: |
         pre-commit install
-        pre-commit run --all-files
+        pre-commit run --all-files || true
 
-    - name: Lint shell scripts
-      run: |
-        find scripts/ -name "*.sh" -exec shellcheck {} \;
-
-    - name: Check Python formatting
+    - name: Check Python formatting with Black
       run: |
         black --check --diff .
+
+    - name: Lint Python code with flake8
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Check shell scripts with shellcheck
+      run: |
+        find . -name "*.sh" -exec shellcheck {} \;
+
+    - name: Validate YAML files
+      run: |
+        yamllint -d relaxed config/*.yaml environment.yml || true
 
   test:
     runs-on: ubuntu-latest

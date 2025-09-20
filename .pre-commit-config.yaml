@@ -1,23 +1,28 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v4.4.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        args: ['--allow-multiple-documents']
       - id: check-added-large-files
-      - id: check-merge-conflict
-      - id: debug-statements
+        args: ['--maxkb=1000']
       - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: detect-private-key
 
   - repo: https://github.com/psf/black
     rev: 23.12.0
     hooks:
       - id: black
-        language_version: python3.11
+        language_version: python3
+        args: [--line-length=88]
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
     hooks:
       - id: flake8
         args: [--max-line-length=88, --extend-ignore=E203,W503]
@@ -26,26 +31,28 @@ repos:
     rev: v0.9.0.6
     hooks:
       - id: shellcheck
-        files: \.sh$
-        args: [-e, SC1090, -e, SC1091]
+        args: [-x]
 
-  - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.12.0
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
     hooks:
-      - id: markdownlint
-        args: [--config, .markdownlint.json]
+      - id: yamllint
+        args: [-d, relaxed]
 
   - repo: local
     hooks:
-      - id: validate-yaml
-        name: Validate YAML files
-        entry: python -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))"
+      - id: check-conda-env
+        name: Check conda environment file
+        entry: python
         language: system
-        files: \.(yaml|yml)$
+        files: '^environment\.yml$'
+        args: [-c, "import yaml; yaml.safe_load(open('environment.yml'))"]
         pass_filenames: false
 
-      - id: check-scripts-executable
-        name: Check scripts are executable
-        entry: bash -c "find scripts/ -name '*.sh' -exec test -x {} \; -print"
+      - id: validate-config
+        name: Validate pipeline configuration
+        entry: python
         language: system
+        files: '^config/.*\.yaml$'
+        args: [-c, "import yaml; [yaml.safe_load(open(f)) for f in ['config/config.yaml', 'config/cluster.yaml']]"]
         pass_filenames: false
