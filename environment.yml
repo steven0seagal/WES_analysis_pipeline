@@ -1,0 +1,53 @@
+name: wes-analysis
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # Quality control tools
+  - fastqc=0.12.1
+  - multiqc=1.24
+
+  # Alignment and processing tools
+  - bwa=0.7.17
+  - samtools=1.19.2
+  - picard=3.1.1
+
+  # Variant calling tools
+  - gatk4=4.5.0.0
+
+  # Annotation tools
+  - snpeff=5.2
+  - bcftools=1.19
+
+  # Workflow management
+  - snakemake-minimal=8.14.0
+
+  # Utility tools
+  - tabix=1.19.2
+  - bgzip=1.19.2
+  - htslib=1.19.2
+
+  # Python dependencies
+  - python=3.11
+  - pandas=2.1.4
+  - numpy=1.26.2
+  - matplotlib=3.8.2
+  - seaborn=0.13.0
+  - jupyter=1.0.0
+
+  # Development and quality tools
+  - black=23.12.0
+  - pre-commit=3.6.0
+
+  # Additional utilities
+  - wget=1.21.4
+  - curl=8.5.0
+  - gzip=1.12
+
+  # GLnexus for DeepVariant joint calling (available via conda)
+  - glnexus=1.4.1
+
+  # Note: DeepVariant is best run via its official Docker/Singularity container
+  # and is not included in this central environment file.
+  # It will be handled by the pipeline scripts directly.

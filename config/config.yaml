@@ -1,0 +1,106 @@
+# Main configuration file for WES Analysis Pipeline
+# This file contains default settings for both GATK and DeepVariant workflows
+
+# Sample Information
+# List of sample names - Snakemake will find FASTQ files based on these names
+samples:
+  - sample1
+  - sample2
+  - sample3
+
+# Directory Paths
+data_dir: "data"
+ref_dir: "reference"
+results_dir: "results"
+scripts_dir: "scripts"
+
+# Reference Files
+# Note: These files will be created by the prepare_reference.sh script
+reference_genome: "reference/GRCh38.p13.genome.fa"
+dbsnp: "reference/dbsnp_146.hg38.vcf.gz"
+mills_indels: "reference/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
+exome_targets: "reference/exome_targets.bed"  # USER MUST PROVIDE THIS FILE
+
+# Tool Parameters
+params:
+  # Computational resources
+  threads: 8
+  mem_gb: 16
+
+  # Java options for GATK
+  java_opts: "-Xmx16G -Djava.io.tmpdir=./tmp"
+
+  # Read Group Information
+  rg:
+    platform: "ILLUMINA"
+    library_prefix: "lib"
+    platform_unit_prefix: "unit"
+
+  # Quality Control
+  fastqc:
+    threads: 2
+
+  # Alignment
+  bwa:
+    threads: 8
+    mem_sort_threads: 4
+
+  # GATK specific parameters
+  gatk:
+    base_recalibrator_threads: 4
+    haplotype_caller_threads: 4
+    joint_genotyping_threads: 8
+
+  # DeepVariant specific parameters
+  deepvariant:
+    version: "1.6.1"
+    model_type: "WES"
+    num_shards: 8
+
+  # Annotation
+  snpeff:
+    genome_db: "GRCh38.86"
+    memory: "8g"
+
+# Output Options
+output:
+  # Keep intermediate files (useful for debugging)
+  keep_intermediate: false
+
+  # Compress output VCFs
+  compress_vcf: true
+
+  # Generate MultiQC report
+  generate_multiqc: true
+
+# Pipeline Selection
+# Set which pipelines to run (both can be true)
+run_gatk: true
+run_deepvariant: true
+
+# Advanced Options
+advanced:
+  # Use container for DeepVariant (recommended)
+  use_deepvariant_container: true
+
+  # Container runtime (docker or singularity)
+  container_runtime: "docker"
+
+  # Temporary directory
+  tmp_dir: "./tmp"
+
+  # Clean up temporary files
+  cleanup_temp: true
+
+# Cluster Configuration (for HPC environments)
+cluster:
+  # SLURM job parameters
+  slurm:
+    partition: "normal"
+    time: "24:00:00"
+    mem_per_cpu: "4G"
+
+  # SGE job parameters
+  sge:
+    queue: "all.q"
+    pe: "smp"

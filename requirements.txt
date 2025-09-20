@@ -1,0 +1,35 @@
+# Python requirements for WES Analysis Pipeline
+# This file provides an alternative to conda for Python dependencies only
+# Note: Bioinformatics tools (BWA, GATK, etc.) are best installed via conda
+
+# Core scientific computing
+pandas>=2.1.0
+numpy>=1.24.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Workflow and utilities
+snakemake>=8.0.0
+pyyaml>=6.0
+click>=8.0.0
+
+# Development tools
+black>=23.0.0
+pre-commit>=3.6.0
+pytest>=7.0.0
+
+# Documentation
+sphinx>=7.0.0
+sphinx-rtd-theme>=1.3.0
+
+# Jupyter for notebooks
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Data visualization and analysis
+plotly>=5.17.0
+bokeh>=3.3.0
+
+# File handling
+pysam>=0.22.0
+pyvcf3>=1.0.3

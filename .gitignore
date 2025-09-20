@@ -1,0 +1,129 @@
+# WES Analysis Pipeline .gitignore
+
+# Large data files
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bam.bai
+*.sam
+*.cram
+*.crai
+
+# Reference files (too large for git)
+reference/
+*.fa
+*.fasta
+*.fa.gz
+*.fasta.gz
+*.fai
+*.dict
+*.amb
+*.ann
+*.bwt
+*.pac
+*.sa
+
+# VCF files (can be large)
+*.vcf
+*.vcf.gz
+*.vcf.idx
+*.vcf.gz.tbi
+*.gvcf
+*.gvcf.gz
+*.bcf
+
+# Temporary and intermediate files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+*_temp
+
+# Results directories (contain large files)
+results/*/
+!results/.gitkeep
+
+# Snakemake files
+.snakemake/
+*.snakemake
+
+# Log files
+*.log
+logs/
+*.out
+*.err
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# conda
+.conda/
+
+# Environment files
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Singularity
+*.sif
+*.simg
+
+# Conda package building
+conda-bld/
+
+# Test data (if large)
+data/real/
+data/large/
+
+# Keep structure files
+!*/.gitkeep
+!*/README.md

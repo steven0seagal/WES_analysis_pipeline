@@ -1,0 +1,55 @@
+# Cluster configuration for SLURM
+# Used when running Snakemake workflows on HPC clusters
+
+# Default cluster settings
+__default__:
+  partition: "normal"
+  time: "02:00:00"
+  mem: "8G"
+  output: "logs/slurm/{rule}_{wildcards}_%j.out"
+  error: "logs/slurm/{rule}_{wildcards}_%j.err"
+
+# Rule-specific settings
+fastqc_raw:
+  time: "00:30:00"
+  mem: "4G"
+
+bwa_mem_sort:
+  time: "04:00:00"
+  mem: "16G"
+
+mark_duplicates:
+  time: "02:00:00"
+  mem: "16G"
+
+base_recalibrator:
+  time: "02:00:00"
+  mem: "16G"
+
+apply_bqsr:
+  time: "02:00:00"
+  mem: "16G"
+
+haplotype_caller:
+  time: "06:00:00"
+  mem: "16G"
+
+collect_hs_metrics:
+  time: "01:00:00"
+  mem: "8G"
+
+genomicsdb_import:
+  time: "04:00:00"
+  mem: "32G"
+
+genotype_gvcfs:
+  time: "08:00:00"
+  mem: "32G"
+
+snpeff_annotate:
+  time: "02:00:00"
+  mem: "16G"
+
+multiqc:
+  time: "00:30:00"
+  mem: "4G"
