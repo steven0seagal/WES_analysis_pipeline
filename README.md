@@ -2,7 +2,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Snakemake](https://img.shields.io/badge/snakemake-≥7.0-brightgreen.svg)](https://snakemake.github.io)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg)](https://www.docker.com/)
+[![CI](https://github.com/yourusername/wes-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/wes-pipeline/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1234567.svg)](https://doi.org/10.5281/zenodo.1234567)
+[![GitHub issues](https://img.shields.io/github/issues/yourusername/wes-pipeline.svg)](https://github.com/yourusername/wes-pipeline/issues)
+[![GitHub stars](https://img.shields.io/github/stars/yourusername/wes-pipeline.svg)](https://github.com/yourusername/wes-pipeline/stargazers)
 
 A comprehensive Whole Exome Sequencing (WES) analysis pipeline repository with both GATK Best Practices and DeepVariant implementations. This repository provides production-ready pipelines for germline variant calling from raw FASTQ files to annotated VCFs.
 
