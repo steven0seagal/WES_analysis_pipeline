@@ -37,10 +37,10 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: ${{ env.CONDA_ENV_NAME }}
         activate-environment: ${{ env.CONDA_ENV_NAME }}
         python-version: ${{ matrix.python-version }}
         auto-activate-base: false
+        use-mamba: true
 
     - name: Test conda environment
       shell: bash -l {0}
@@ -101,7 +101,6 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: ${{ env.CONDA_ENV_NAME }}
         activate-environment: ${{ env.CONDA_ENV_NAME }}
         auto-activate-base: false
 
@@ -157,7 +156,6 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: ${{ env.CONDA_ENV_NAME }}
         activate-environment: ${{ env.CONDA_ENV_NAME }}
         auto-activate-base: false
 
@@ -310,7 +308,6 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: ${{ env.CONDA_ENV_NAME }}
         activate-environment: ${{ env.CONDA_ENV_NAME }}
         auto-activate-base: false
 
@@ -356,7 +353,6 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: ${{ env.CONDA_ENV_NAME }}
         activate-environment: ${{ env.CONDA_ENV_NAME }}
         auto-activate-base: false
 

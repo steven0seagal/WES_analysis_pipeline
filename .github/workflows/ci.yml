@@ -72,7 +72,6 @@ jobs:
       with:
         miniconda-version: "latest"
         environment-file: environment.yml
-        environment-name: wes-analysis
         activate-environment: wes-analysis
         auto-activate-base: false
         use-mamba: true

@@ -1,0 +1,31 @@
+name: wes-analysis
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # Core Python
+  - python>=3.9,<3.12
+
+  # Essential bioinformatics tools
+  - bwa>=0.7.17
+  - samtools>=1.19
+  - gatk4>=4.5.0
+  - fastqc>=0.12.1
+  - multiqc>=1.24
+
+  # Essential utilities
+  - htslib>=1.19  # includes tabix and bgzip
+  - bcftools>=1.19
+
+  # Workflow management
+  - snakemake-minimal>=8.0
+
+  # Core Python packages
+  - pandas>=2.1.0
+  - numpy>=1.24.0
+  - matplotlib>=3.8.0
+  - pyyaml>=6.0
+
+  # Development tools
+  - black>=23.0.0
